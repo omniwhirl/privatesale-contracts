@@ -11,7 +11,6 @@ contract PrivateSale is Ownable, ReentrancyGuard {
 
     ERC20 public stable_coin;
     ERC20 public sale_token;
-    uint256 public raised_funds;
 
     bool public isRaiseComplete = false;
 
@@ -41,6 +40,8 @@ contract PrivateSale is Ownable, ReentrancyGuard {
     uint256 public constant max_vc = 10;
     uint256 public constant max_influencer = 15;
     uint256 public constant max_individual = 25;
+
+    uint256 public constant stable_coin_decimals = 1e6;
 
     uint256 public vc_purchase_count = 0;
     uint256 public influencer_purchase_count = 0;
@@ -95,11 +96,35 @@ contract PrivateSale is Ownable, ReentrancyGuard {
         stable_coin = ERC20(_stable_coin_address);
     }
 
+    function _amountInStableCoin(uint256 token_amount)
+        private
+        view
+        returns (uint256)
+    {
+        return
+            // converts tokens being sold into the amount of stable coin to be purchased with
+            token_amount.mul(exchange_rate_cents).div(100).mul(
+                stable_coin_decimals
+            );
+    }
+
+    function _redeemableTokens(Purchase memory purchase)
+        private
+        view
+        returns (uint256)
+    {
+        return purchase.token_amount.mul(1e18).mul(TGE_unlock).div(100);
+    }
+
     function whitelistInfluencer(address[] memory _influencer_addresses)
         external
         onlyOwner
     {
         for (uint256 i = 0; i < _influencer_addresses.length; i++) {
+            require(
+                _influencer_addresses[i] != address(0),
+                "Zero Address given"
+            );
             require(influencer_whitelist[_influencer_addresses[i]] != true);
             influencer_whitelist[_influencer_addresses[i]] = true;
         }
@@ -111,6 +136,10 @@ contract PrivateSale is Ownable, ReentrancyGuard {
         onlyOwner
     {
         for (uint256 i = 0; i < _individual_addresses.length; i++) {
+            require(
+                _individual_addresses[i] != address(0),
+                "Zero Address given"
+            );
             require(individual_whitelist[_individual_addresses[i]] != true);
             individual_whitelist[_individual_addresses[i]] = true;
         }
@@ -119,6 +148,7 @@ contract PrivateSale is Ownable, ReentrancyGuard {
 
     function whitelistVC(address[] memory _vc_addresses) external onlyOwner {
         for (uint256 i = 0; i < _vc_addresses.length; i++) {
+            require(_vc_addresses[i] != address(0), "Zero Address given");
             require(vc_whitelist[_vc_addresses[i]] != true);
             vc_whitelist[_vc_addresses[i]] = true;
         }
@@ -171,13 +201,12 @@ contract PrivateSale is Ownable, ReentrancyGuard {
             influencer_purchased[msg.sender] == 0,
             "You have already claimed your allocation"
         );
-        uint256 stable_coin_amount = influencer_tokens
-        .mul(exchange_rate_cents)
-        .div(100) // cents to USD
-        .mul(
-            1e6 // USDT or USDC both have 6 decimals
+        uint256 stable_coin_amount = _amountInStableCoin(influencer_tokens);
+        uint256 allowance = stable_coin.allowance(msg.sender, address(this));
+        require(
+            allowance >= stable_coin_amount,
+            "Stable Coin Allowance lower than required. Approve More"
         );
-
         require(
             stable_coin.transferFrom(
                 msg.sender,
@@ -187,7 +216,6 @@ contract PrivateSale is Ownable, ReentrancyGuard {
             "Purchase failed"
         );
 
-        raised_funds.add(stable_coin_amount);
         influencer_purchase_count = influencer_purchase_count.add(1);
         influencer_purchased[msg.sender] = influencer_tokens;
 
@@ -223,11 +251,11 @@ contract PrivateSale is Ownable, ReentrancyGuard {
             individual_purchased[msg.sender] == 0,
             "You have already claimed your allocation"
         );
-        uint256 stable_coin_amount = individual_tokens
-        .mul(exchange_rate_cents)
-        .div(100) // cents to USD
-        .mul(
-            1e6 // USDT or USDC both have 6 decimals
+        uint256 stable_coin_amount = _amountInStableCoin(individual_tokens);
+        uint256 allowance = stable_coin.allowance(msg.sender, address(this));
+        require(
+            allowance >= stable_coin_amount,
+            "Stable Coin Allowance lower than required. Approve More"
         );
 
         require(
@@ -239,7 +267,6 @@ contract PrivateSale is Ownable, ReentrancyGuard {
             "Purchase failed"
         );
 
-        raised_funds.add(stable_coin_amount);
         individual_purchase_count = individual_purchase_count.add(1);
         individual_purchased[msg.sender] = individual_tokens;
 
@@ -269,11 +296,11 @@ contract PrivateSale is Ownable, ReentrancyGuard {
             vc_purchased[msg.sender] == 0,
             "You have already claimed your allocation"
         );
-        uint256 stable_coin_amount = vc_tokens
-        .mul(exchange_rate_cents)
-        .div(100) // cents to USD
-        .mul(
-            1e6 // USDT or USDC both have 6 decimals
+        uint256 stable_coin_amount = _amountInStableCoin(vc_tokens);
+        uint256 allowance = stable_coin.allowance(msg.sender, address(this));
+        require(
+            allowance >= stable_coin_amount,
+            "Stable Coin Allowance lower than required. Approve More"
         );
 
         require(
@@ -285,7 +312,6 @@ contract PrivateSale is Ownable, ReentrancyGuard {
             "Purchase failed"
         );
 
-        raised_funds.add(stable_coin_amount);
         vc_purchase_count = vc_purchase_count.add(1);
         vc_purchased[msg.sender] = vc_tokens;
 
@@ -311,12 +337,17 @@ contract PrivateSale is Ownable, ReentrancyGuard {
     function redeemTokens() external onlyPurchased raiseComplete nonReentrant {
         Purchase memory purchase = purchases[msg.sender];
         require(!purchase.withdrawn, "Address has already redeemed tokens");
+        uint256 tokens_to_redeem = _redeemableTokens(purchase);
+        require(
+            sale_token.balanceOf(address(this)) >= tokens_to_redeem,
+            "Insufficient redeemable tokens in contract"
+        );
         purchase.withdrawn = true;
         purchases[msg.sender] = purchase;
         require(
             sale_token.transfer(
                 purchase.purchaser,
-                purchase.token_amount.mul(1e18).mul(TGE_unlock).div(100) // convert to percent
+                tokens_to_redeem // convert to percent
             ),
             "Redeem transfer failed"
         );
