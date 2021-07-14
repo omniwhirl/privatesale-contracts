@@ -310,6 +310,7 @@ contract PrivateSale is Ownable, ReentrancyGuard {
 
     function redeemTokens() external onlyPurchased raiseComplete nonReentrant {
         Purchase memory purchase = purchases[msg.sender];
+        require(!purchase.withdrawn, "Address has already redeemed tokens");
         purchase.withdrawn = true;
         purchases[msg.sender] = purchase;
         require(
