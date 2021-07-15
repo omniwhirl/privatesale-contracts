@@ -103,6 +103,9 @@ contract PrivateSale is Ownable, ReentrancyGuard {
     {
         return
             // converts tokens being sold into the amount of stable coin to be purchased with
+            // exchnage rate specifies the rate at which each token is sold, in cents
+            // hence needs to be divided by 100 to convert to US Dollars
+            // Lastly adjusted for decimals of the stable coin
             token_amount.mul(exchange_rate_cents).div(100).mul(
                 stable_coin_decimals
             );
@@ -113,6 +116,8 @@ contract PrivateSale is Ownable, ReentrancyGuard {
         view
         returns (uint256)
     {
+        // AT TGE only fixed percentage is allowed to be unlocked, and is hence calculated via the following formulka below
+        // It is divided by 100 to convert in % and is adjusted for 18 decimals of the tokens
         return purchase.token_amount.mul(1e18).mul(TGE_unlock).div(100);
     }
 
@@ -120,6 +125,10 @@ contract PrivateSale is Ownable, ReentrancyGuard {
         external
         onlyOwner
     {
+        require(
+            _influencer_addresses.length <= 100,
+            "Please whitelist maximum 100 addresses at a time"
+        );
         for (uint256 i = 0; i < _influencer_addresses.length; i++) {
             require(
                 _influencer_addresses[i] != address(0),
@@ -135,6 +144,10 @@ contract PrivateSale is Ownable, ReentrancyGuard {
         external
         onlyOwner
     {
+        require(
+            _individual_addresses.length <= 100,
+            "Please whitelist maximum 100 addresses at a time"
+        );
         for (uint256 i = 0; i < _individual_addresses.length; i++) {
             require(
                 _individual_addresses[i] != address(0),
@@ -147,6 +160,10 @@ contract PrivateSale is Ownable, ReentrancyGuard {
     }
 
     function whitelistVC(address[] memory _vc_addresses) external onlyOwner {
+        require(
+            _vc_addresses.length <= 100,
+            "Please whitelist maximum 100 addresses at a time"
+        );
         for (uint256 i = 0; i < _vc_addresses.length; i++) {
             require(_vc_addresses[i] != address(0), "Zero Address given");
             require(vc_whitelist[_vc_addresses[i]] != true);
